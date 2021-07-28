@@ -5,11 +5,12 @@
 
 import datetime
 import os
-# import pickle
 
 from dateparser import parse
 from discord.ext import commands
 from dotenv import load_dotenv
+
+# import pickle
 
 # import environment variables from the .env file
 load_dotenv()
@@ -71,6 +72,19 @@ async def available(ctx, *args: str):
     print(availability)
     # time = avail.time()
     await ctx.send("Thanks!")
+
+
+# Display README from GitHub
+from discord import Webhook, AsyncWebhookAdapter
+import aiohttp
+
+
+async def show_readme():
+    async with aiohttp.ClientSession() as session:
+        webhook = Webhook.from_url(
+            'https://discord.com/api/webhooks/869889291147440168/n84Ks5nodo1Ue9_Rv8a48u4VVDghFp3SYSoElhOaE5MsclAj5VsGNZmseW91Y0puJFrg',
+            adapter=AsyncWebhookAdapter(session))
+        await webhook.send('HelloWorld', username='Foo')
 
 
 bot.run(TOKEN)
