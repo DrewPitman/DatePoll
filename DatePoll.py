@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 # import environment variables from the .env file
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+README_webhook_url = os.getenv('README_webhook_url')
 
 # make a bot
 bot = commands.Bot(command_prefix='!')
@@ -78,13 +79,11 @@ async def available(ctx, *args: str):
 from discord import Webhook, AsyncWebhookAdapter
 import aiohttp
 
-
+@bot.command()
 async def show_readme():
     async with aiohttp.ClientSession() as session:
-        webhook = Webhook.from_url(
-            'https://discord.com/api/webhooks/869889291147440168/n84Ks5nodo1Ue9_Rv8a48u4VVDghFp3SYSoElhOaE5MsclAj5VsGNZmseW91Y0puJFrg',
-            adapter=AsyncWebhookAdapter(session))
-        await webhook.send('HelloWorld', username='Foo')
+        webhook = Webhook.from_url(README_webhook_url, adapter=AsyncWebhookAdapter(session))
+        await webhook.send('HelloWorld')
 
 
 bot.run(TOKEN)
