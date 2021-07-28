@@ -75,16 +75,5 @@ async def available(ctx, *args: str):
     await ctx.send("Thanks!")
 
 
-# Display README from GitHub
-from discord import Webhook, AsyncWebhookAdapter
-import aiohttp
-
-@bot.command()
-async def show_readme(ctx):
-    async with aiohttp.ClientSession() as session:
-        webhook = Webhook.from_url(README_webhook_url, adapter=AsyncWebhookAdapter(session))
-        await webhook.send('HelloWorld')
-
-
 bot.run(TOKEN)
 # TEST_PUSH 1
