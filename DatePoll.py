@@ -84,7 +84,6 @@ async def show_readme(ctx):
     async with aiohttp.ClientSession() as session:
         webhook = Webhook.from_url(README_webhook_url, adapter=AsyncWebhookAdapter(session))
         await webhook.send('HelloWorld')
-        print(await webhook)
 
 
 bot.run(TOKEN)
