@@ -16,15 +16,10 @@ from dotenv import load_dotenv
 # import environment variables from the .env file
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-README_webhook_url = os.getenv('README_webhook_url')
 
 # make a bot and THE dictionary for player bot.availability
 bot = commands.Bot(command_prefix='!')
 
-# assign availabilities
-bot.save_availability = pickle.load(file=open("availability.p", "rb"))
-user_list = list(set([y for _, x in bot.save_availability for y in x]))
-bot.user_dict = {}
 
 
 @bot.event
@@ -32,16 +27,19 @@ async def on_ready():
     await bot.wait_until_ready()
     print(f'{bot.user.name} has connected to Discord!')
 
+    for guild in bot.guilds:
+        print(guild.name)
+    # assign availabilities
+    # use guild id string to make it so that the bot can save different availability dicts to different servers
+    bot.save_availability = pickle.load(file=open("availability.p", "rb"))
+    user_list = list(set([y for _, x in bot.save_availability for y in x]))
+    bot.user_dict = {}
+
     # prepare bot.availability from last session
     for x in user_list:
         bot.user_dict[x] = await bot.fetch_user(x)
     bot.availability = {x: set([bot.user_dict[z] for z in y]) for x, y in bot.save_availability if
                         x >= datetime.date.today()}
-
-
-weekday_tup = (
-    'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'Monday', 'Tuesday', 'Wednesday',
-    'Thursday', 'Friday', 'Saturday', 'Sunday')
 
 
 # this is how we want the bot to display dates on Discord
@@ -55,6 +53,7 @@ def parse(x):
 
 
 # a function to turn user input into a date range
+# currently understands "from .. to" and "next [weekday]"
 def read_dates(*args):
     # clean up input
     args = list(args)
@@ -93,9 +92,12 @@ def read_dates(*args):
 # bot commands
 
 # Testing
-@bot.command(name='HelloThere', help='Was trained in your jedi arts by Count Dooku')
-async def say_hello(ctx):
-    reply = "General Kenobi!"
+@bot.command(name='hello', help='Was trained in your jedi arts by Count Dooku')
+async def hello_there(ctx, *args):
+    if "there" in args[0]:
+        reply = "General Kenobi!"
+    else:
+        reply = "where?"
     await ctx.send(reply)
 
 
@@ -151,7 +153,7 @@ async def bot_remove(ctx, *args: str):
         if d in bot.availability.keys():
             try:
                 bot.availability[d].remove(user)
-            except:
+            except ValueError:
                 pass
 
     bot.save_availability = [(x, [z.id for z in y]) for x, y in bot.availability.items()]
@@ -169,10 +171,11 @@ async def bot_remove(ctx, *args: str):
 class PollButton(discord.ui.Button['Poll']):
     def __init__(self, start_date: datetime.date, entry: int):
         self.date = start_date + datetime.timedelta(days=entry)
+        button_label = interpret_input(self.date)
         try:
-            button_label = interpret_input(self.date) + " : " + ', '.join([x.name for x in bot.availability[self.date]])
-        except:
-            button_label = interpret_input(self.date)
+            button_label += " : " + ', '.join([x.name for x in bot.availability[self.date]])
+        except KeyError:
+            pass
         # entry = divmod(entry, 5)[0]
         super().__init__(style=discord.ButtonStyle.blurple, label=button_label, row=entry)
 
@@ -184,7 +187,7 @@ class PollButton(discord.ui.Button['Poll']):
                 bot.availability[self.date].remove(interaction.user)
             else:
                 bot.availability[self.date].add(interaction.user)
-        except:
+        except KeyError:
             bot.availability[self.date] = {interaction.user}
 
         bot.save_availability = [(x, [z.id for z in y]) for x, y in bot.availability.items()]
