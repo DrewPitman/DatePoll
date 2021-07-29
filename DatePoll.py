@@ -5,7 +5,6 @@
 
 import datetime
 import os
-import threading
 import asyncio
 
 import dateparser
@@ -20,12 +19,39 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 README_webhook_url = os.getenv('README_webhook_url')
 
-# make a bot
+# make a bot and THE dictionary for player availability
 bot = commands.Bot(command_prefix='!')
 
+
 # make a dictionary for dates
-availability = {}  # date : user_id pairs
-pickle.dump(availability, open("availability.p", "wb"))
+# availability = {}  # date : user_id pairs
+# save_availability = []
+
+# these two lines are all some of the bot commands can see
+availability = {}
+save_availability = []
+
+@bot.event
+async def on_ready():
+    await bot.wait_until_ready()
+    print(f'{bot.user.name} has connected to Discord!')
+    availability ={}
+    save_availabilty = []
+
+    try:
+        save_availability = pickle.load(file=open("availability.p", "rb"))
+        print("save_availability at start: ", save_availability)
+        user_list = list(set([y for _, x in save_availability for y in x]))
+        print("user_list: ", user_list)
+        user_dict = {}
+        for x in user_list:
+            user_dict[x] = await bot.fetch_user(x)
+        print("user_dict: ", user_dict)
+        availability = {x: set([user_dict[z] for z in y]) for x, y in save_availability}
+        print("availability at start: ", availability)
+    except:
+        pass
+    print("availability just after start: ", availability)
 
 weekday_tup = (
     'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'Monday', 'Tuesday', 'Wednesday',
@@ -79,24 +105,21 @@ def read_dates(*args):
     return date_range
 
 
-# bot events and commands
-
-# say hi so I know it's running
-@bot.event
-async def on_ready():
-    print(f'{bot.user.name} has connected to Discord!')
-
+# bot commands
 
 # Testing
 @bot.command(name='HelloThere', help='Was trained in your jedi arts by Count Dooku')
 async def say_hello(ctx):
     reply = "General Kenobi!"
+    print(ctx.author.id)
+    print(bot.get_user(ctx.author.id))
     await ctx.send(reply)
 
 
 # Tell the user who is available and when
 @bot.command(name="show", help="the bot will tell you who is available and when")
 async def show(ctx, *args):
+    print("availability in !show: ", availability)
     if args:
         date_range = read_dates(*args)
     else:
@@ -116,6 +139,7 @@ async def show(ctx, *args):
 # tell the bot that you're available
 @bot.command(name="add", help="tells the bot you're available on a given date or dates")
 async def bot_add(ctx, *args: str):
+    print("availability before !add: ", availability)
     # get user
     user = ctx.author
     print("user: ", user)
@@ -128,8 +152,10 @@ async def bot_add(ctx, *args: str):
         else:
             availability[d] = {user}
 
-
-    pickle.dump(availability, open("availability.p", "wb"))
+    print("availability after !add: ", availability)
+    save_availability = [(x, [z.id for z in y]) for x, y in availability.items()]
+    pickle.dump(save_availability, open("availability.p", "wb"))
+    print("save_availability after !add: ", save_availability)
 
     # inform the user
     await ctx.send("Thanks " + ctx.author.name + ", you've been marked available on " +
@@ -139,6 +165,7 @@ async def bot_add(ctx, *args: str):
 # tell the bot you're unavailable
 @bot.command(name="remove", help="tells the bot you're no longer available on a given date or dates")
 async def bot_remove(ctx, *args: str):
+    print("availability before !remove: ", availability)
     # get user
     user = ctx.author
     print("user: ", user)
@@ -152,8 +179,10 @@ async def bot_remove(ctx, *args: str):
             except:
                 pass
 
-    save_availability = {x:set([z.id for z in y]) for x,y in availability.items()}
+    print("availability after !remove: ", availability)
+    save_availability = [(x, [z.id for z in y]) for x, y in availability.items()]
     pickle.dump(save_availability, open("availability.p", "wb"))
+    print("save_availability after !remove: ", save_availability)
 
     # inform the user
     await ctx.send("Thanks " + ctx.author.name + ", you've been marked unavailable on " +
@@ -165,7 +194,7 @@ async def bot_remove(ctx, *args: str):
 # https://gist.github.com/Rapptz/dbfd8cd945a9245e5504a54c2b9eda03
 
 class PollButton(discord.ui.Button['Poll']):
-    def __init__(self, ctx: commands.Context, start_date: datetime.date, entry: int):
+    def __init__(self, start_date: datetime.date, entry: int):
         self.date = start_date + datetime.timedelta(days=entry)
         try:
             button_label = interpret_input(self.date) + " : " + ', '.join([x.name for x in availability[self.date]])
@@ -173,21 +202,25 @@ class PollButton(discord.ui.Button['Poll']):
             button_label = interpret_input(self.date)
         # entry = divmod(entry, 5)[0]
         super().__init__(style=discord.ButtonStyle.blurple, label=button_label, row=entry)
-        self.ctx = ctx
 
     async def callback(self, interaction: discord.Interaction):
+        print("availability before callback(): ", availability)
         assert self.view is not None
         view: Poll = self.view
+        print(interaction.user)
         try:
-            if self.ctx.author in availability[self.date]:
-                availability[self.date].remove(self.ctx.author)
+            if interaction.user in availability[self.date]:
+                availability[self.date].remove(interaction.user)
             else:
-                availability[self.date].add(self.ctx.author)
+                availability[self.date].add(interaction.user)
         except:
-            availability[self.date] = {self.ctx.author}
+            availability[self.date] = {interaction.user}
 
-        save_availability = {x: set([z.id for z in y]) for x, y in availability.items()}
+        print("availability after callback(): ", availability)
+
+        save_availability = [(x, [z.id for z in y]) for x, y in availability.items()]
         pickle.dump(save_availability, open("availability.p", "wb"))
+        print("save_availability after callback(): ", save_availability)
 
         if availability[self.date]:
             self.label = interpret_input(self.date) + " : " + ', '.join([x.name for x in availability[self.date]])
@@ -197,25 +230,26 @@ class PollButton(discord.ui.Button['Poll']):
         await interaction.response.edit_message(view=view)
 
 class Poll(discord.ui.View):
-    def __init__(self, ctx: commands.Context, start_date: datetime.date):
-        super().__init__()
+    def __init__(self, start_date: datetime.date):
+        super().__init__(timeout=None)  # timeout=None allows users to access
 
         for x in range(5):
-            self.add_item(PollButton(ctx, start_date, x))
-
+            self.add_item(PollButton(start_date, x))
 
 async def poll_thread(ctx: commands.Context, content: str, start_date):
-    await ctx.send(content, view=Poll(ctx, start_date))
+    await ctx.send(content, view=Poll(start_date))
 
 @bot.command(name="poll", help="a poll that allows users to toggle availability without text commands")
 async def poll(ctx: commands.Context):
+    print("availability before !poll: ", availability)
     start_dates = [datetime.date.today() + datetime.timedelta(days=5 * x) for x in range(3)]
 
     await asyncio.gather(
-        poll_thread(ctx, "Poll:\npart 1", start_dates[0]),
-        poll_thread(ctx, "part 2", start_dates[1]),
-        poll_thread(ctx, 'part 3', start_dates[2])
+        poll_thread(ctx, "Poll:", start_dates[0]),
+        poll_thread(ctx, '\u200b', start_dates[1]),
+        poll_thread(ctx, '\u200b', start_dates[2])
     )
+    print("availability after !poll: ", availability)
 
 
 bot.run(TOKEN)
