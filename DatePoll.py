@@ -94,7 +94,7 @@ async def on_ready():
 
             # reformat for convenience
             for x in user_list:
-                bot.user_dict[x] = await bot.fetch_user(x)
+                bot.user_dict[x] = await guild.fetch_member(x)
             bot.availability[guild.id] = {x: set([bot.user_dict[z] for z in y]) for x, y in
                                           save_availability if x >= datetime.date.today()}
         except:
@@ -161,7 +161,7 @@ async def bot_add(ctx, *args: str):
     pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
 
     # inform the user
-    await ctx.send("Thanks " + ctx.author.name + ", you've been marked available on " +
+    await ctx.send("Thanks " + ctx.author.display_name + ", you've been marked available on " +
                    '; '.join([interpret_input(x) for x in date_range]))
 
 
@@ -184,7 +184,7 @@ async def bot_remove(ctx, *args: str):
     pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
 
     # inform the user
-    await ctx.send("Thanks " + ctx.author.name + ", you've been marked unavailable on " +
+    await ctx.send("Thanks " + ctx.author.display_name + ", you've been marked unavailable on " +
                    '; '.join([interpret_input(x) for x in date_range]))
 
 
@@ -199,7 +199,9 @@ class PollButton(discord.ui.Button['Poll']):
         self.date = start_date + datetime.timedelta(days=entry)
         button_label = interpret_input(self.date)
         try:
-            button_label += " : " + ', '.join([x.name for x in bot.availability[ctx.guild.id][self.date]])
+            if bot.availability[ctx.guild.id][self.date]:
+                print([x.guild.me.display_name for x in bot.availability[ctx.guild.id][self.date]])
+                button_label += " : " + ', '.join([x.display_name for x in bot.availability[ctx.guild.id][self.date]])
         except:
             pass
         # entry = divmod(entry, 5)[0]
@@ -227,7 +229,7 @@ class PollButton(discord.ui.Button['Poll']):
         # update button label to show user's available on the button's date
         if bot.availability[interaction.guild.id][self.date]:
             self.label = interpret_input(self.date) + " : " + ', '.join(
-                [x.name for x in bot.availability[interaction.guild.id][self.date]])
+                [x.display_name for x in bot.availability[interaction.guild.id][self.date]])
         else:
             self.label = interpret_input(self.date)
 
