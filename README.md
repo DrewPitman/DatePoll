@@ -7,6 +7,7 @@ A Discord bot that keeps track of when members say they're available for the nex
 * keep an updated dictionary of dates when members are available ✓
     * store permanently with the pickle package ✓
     * delete past dates ✓
+    * make the dictionaries work across multiple servers ✓
 * provide text commands for users
     * add useful help strings
     * handle date ranges ✓
