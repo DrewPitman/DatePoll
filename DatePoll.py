@@ -21,30 +21,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 bot = commands.Bot(command_prefix='!')
 
 
-@bot.event
-async def on_ready():
-    await bot.wait_until_ready()
-    print(f'{bot.user.name} has connected to Discord!')
-
-    for guild in bot.guilds:
-        print(guild.name)
-
-    # prepare bot.availability from last session
-    # use guild id string to make it so that the bot can save different availability dicts to different servers
-    bot.availability = {}
-    for guild in bot.guilds:
-        # noinspection PyBroadException
-        try:
-            save_availability = pickle.load(file=open("availability_" + str(guild.id) + ".p", "rb"))
-            user_list = list(set([y for _, x in save_availability for y in x]))
-            bot.user_dict = {}
-            for x in user_list:
-                bot.user_dict[x] = await bot.fetch_user(x)
-            bot.availability[guild.id] = {x: set([bot.user_dict[z] for z in y]) for x, y in
-                                          save_availability if x >= datetime.date.today()}
-        except:
-            bot.availability[guild.id] = {}
-
+# synchronous functions
 
 # this is how we want the bot to display dates on Discord
 def interpret_input(x):
@@ -58,11 +35,12 @@ def parse(x):
 
 # a function to turn user input into a date range
 # currently understands "from .. to" and "next [weekday]"
+# I would like to make it so that "next two weeks" and such works, we'll see what the future holds
 def read_dates(*args):
     # clean up input
     args = list(args)
 
-    trash_strings = ("from", "starting")
+    trash_strings = ("from", "starting", "the")
     for s in trash_strings:
         if s in args:
             args.remove(s)
@@ -70,7 +48,7 @@ def read_dates(*args):
     # turn args into a string
     date_list = ' '.join(args).split(" to ")
 
-    # make "next [weekday]" work
+    # make "next [weekday]" work. Also, convert string input to dates
     for i in range(len(date_list)):
         if "next " in date_list[i] and date_list[i].index("next ") == 0:
             date_list[i] = parse(date_list[i].replace("next ", '')).date()
@@ -79,42 +57,82 @@ def read_dates(*args):
         else:
             date_list[i] = parse(date_list[i]).date()
 
-    # I would like to make it so that "next two weeks" and such works
-
-    if len(date_list) == 2:
+    if len(date_list) == 2:  # we have a range of multiple dates
         if date_list[0] > date_list[1]:
             # we assume that weekdays were given and that this caused issued
             date_list[1] += (1 + divmod((date_list[0] - date_list[1]).days, 7)[0]) * datetime.timedelta(weeks=1)
         num_days = date_list[1] - date_list[0]
         num_days = num_days.days
         date_range = [date_list[0] + datetime.timedelta(days=x) for x in range(num_days + 1)]
-    else:
+    else:  # we have just one date
         date_range = date_list
     return date_range
 
 
+# asynchronous functions ... IF I HAD ONE
+
+
+# bot events
+
+# what the bot does when it first wakes up
+@bot.event
+async def on_ready():
+    await bot.wait_until_ready()
+    print(bot.user.name + " has connected to Discord!")
+
+    for guild in bot.guilds:
+        print(guild.name)
+
+    # use guild ids so that the bot can maintain different availability dicts for different servers
+    bot.availability = {}
+    for guild in bot.guilds:
+        try:
+            # get availability from last session
+            save_availability = pickle.load(file=open("availability_" + str(guild.id) + ".p", "rb"))
+            user_list = list(set([y for _, x in save_availability for y in x]))
+            bot.user_dict = {}
+
+            # reformat for convenience
+            for x in user_list:
+                bot.user_dict[x] = await bot.fetch_user(x)
+            bot.availability[guild.id] = {x: set([bot.user_dict[z] for z in y]) for x, y in
+                                          save_availability if x >= datetime.date.today()}
+        except:
+            bot.availability[guild.id] = {}
+
+
+# I'll leave this commented out for now. Convenient to have the syntax here until I know I don't want it.
+# # what the bot does when someone sends a message
+# @bot.event
+# async def on_message(ctx):
+#     await bot.process_commands(ctx)
+
+
 # bot commands
 
-# Testing
-@bot.command(name='hello', help='Was trained in your jedi arts by Count Dooku')
+# Pure silliness
+@bot.command(name='hello', help='hint: I was trained in your jedi arts by Count Dooku')
 async def hello_there(ctx, *args):
-    if "there" in args[0]:
+    if not args:
+        reply = "hello where?"
+    elif "there" in args[0]:
         reply = "General Kenobi!"
     else:
-        reply = "where?"
+        reply = "I have absolutely no idea what you're saying right now"
     await ctx.send(reply)
 
 
 # Tell the user who is available and when
-@bot.command(name="show", help="the bot will tell you who is available and when")
+@bot.command(name="show", help="the bot will tell you who is available on upcoming dates \noptional input: date range")
 async def show(ctx, *args):
+    # get dates to display
     if args:
         date_range = read_dates(*args)
     else:
         date_range = [x for x in bot.availability[ctx.guild.id] if x >= datetime.date.today()]
-
     date_range.sort()
 
+    # convert dates to strings and display in the channel
     display_list = [
         interpret_input(x) + "\t:\t" + ", ".join([y.name for y in bot.availability[ctx.guild.id].get(x, [])])
         for x in date_range if bot.availability[ctx.guild.id].get(x)]
@@ -125,7 +143,7 @@ async def show(ctx, *args):
 
 
 # tell the bot that you're available
-@bot.command(name="add", help="tells the bot you're available on a given date or dates")
+@bot.command(name="add", help="tell the bot you're available on a given date or dates")
 async def bot_add(ctx, *args: str):
     # get user
     user = ctx.author
@@ -138,6 +156,7 @@ async def bot_add(ctx, *args: str):
         else:
             bot.availability[ctx.guild.id][d] = {user}
 
+    # pickle availability in case of shutdown
     save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[ctx.guild.id].items()]
     pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
 
@@ -147,9 +166,8 @@ async def bot_add(ctx, *args: str):
 
 
 # tell the bot you're unavailable
-@bot.command(name="remove", help="tells the bot you're no longer available on a given date or dates")
+@bot.command(name="remove", help="tell the bot you're no longer available on a given date or dates")
 async def bot_remove(ctx, *args: str):
-    # get user
     user = ctx.author
     date_range = read_dates(*args)
 
@@ -161,6 +179,7 @@ async def bot_remove(ctx, *args: str):
             except:
                 pass
 
+    # pickle the availability in case of shutdown
     save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[ctx.guild.id].items()]
     pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
 
@@ -173,8 +192,10 @@ async def bot_remove(ctx, *args: str):
 # with help from:
 # https://gist.github.com/Rapptz/dbfd8cd945a9245e5504a54c2b9eda03
 
+# class for the buttons that appear for the command '!poll'
 class PollButton(discord.ui.Button['Poll']):
     def __init__(self, ctx: commands.Context, start_date: datetime.date, entry: int):
+        # make button labels before calling __init__
         self.date = start_date + datetime.timedelta(days=entry)
         button_label = interpret_input(self.date)
         try:
@@ -184,9 +205,13 @@ class PollButton(discord.ui.Button['Poll']):
         # entry = divmod(entry, 5)[0]
         super().__init__(style=discord.ButtonStyle.blurple, label=button_label, row=entry)
 
+    # gets called when a button is pressed
     async def callback(self, interaction: discord.Interaction):
+        # helps the button recognize that it's being pushed
         assert self.view is not None
         view: Poll = self.view
+
+        # toggles whether the user pressing the button is in the availability dict
         try:
             if interaction.user in bot.availability[interaction.guild.id][self.date]:
                 bot.availability[interaction.guild.id][self.date].remove(interaction.user)
@@ -195,18 +220,22 @@ class PollButton(discord.ui.Button['Poll']):
         except:
             bot.availability[interaction.guild.id][self.date] = {interaction.user}
 
+        # pickles the availability dict in case of a shutdown
         save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[interaction.guild.id].items()]
         pickle.dump(save_availability, open("availability_" + str(interaction.guild.id) + ".p", "wb"))
 
+        # update button label to show user's available on the button's date
         if bot.availability[interaction.guild.id][self.date]:
             self.label = interpret_input(self.date) + " : " + ', '.join(
                 [x.name for x in bot.availability[interaction.guild.id][self.date]])
         else:
             self.label = interpret_input(self.date)
 
+        # edit the results of the button-press into to the message
         await interaction.response.edit_message(view=view)
 
 
+# class for a group of buttons appearing in a single message for the command '!pull'
 class Poll(discord.ui.View):
     def __init__(self, ctx: commands.Context, start_date: datetime.date):
         super().__init__(timeout=None)  # timeout=None allows users to access
@@ -215,19 +244,27 @@ class Poll(discord.ui.View):
             self.add_item(PollButton(ctx, start_date, x))
 
 
+# function that creates a single message with buttons in it
 async def poll_thread(ctx: commands.Context, content: str, start_date):
     await ctx.send(content, view=Poll(ctx, start_date))
 
 
-@bot.command(name="poll", help="a poll that allows users to toggle availability without text commands")
-async def poll(ctx: commands.Context):
-    start_dates = [datetime.date.today() + datetime.timedelta(days=5 * x) for x in range(3)]
+# bot command to make a poll consisting of buttons across multiple messages
+@bot.command(name="poll", help="buttons allow users to toggle availability \noptional input: number of days in poll")
+async def poll(ctx: commands.Context, days: int = 15):
+    # delete old polls first
+    messages = await ctx.channel.history(limit=100).flatten()
+    messages = [m for m in messages if ("!poll" in m.content and "!" == m.content[0]) or (
+            m.author.id == bot.user.id and m.content in ("Poll:", "\u200b"))]
+    for m in messages:
+        await m.delete()
 
-    await asyncio.gather(
-        poll_thread(ctx, "Poll:", start_dates[0]),
-        poll_thread(ctx, '\u200b', start_dates[1]),
-        poll_thread(ctx, '\u200b', start_dates[2])
-    )
+    # make a new poll with at least as many days as 'days'
+    n = divmod(days - 1, 5)[0] + 1
+    start_dates = [datetime.date.today() + datetime.timedelta(days=5 * x) for x in range(n)]
+    poll_thread_list = [poll_thread(ctx, "Poll:", start_dates[0])] + [poll_thread(ctx, '\u200b', start_dates[i])
+                                                                      for i in range(1, n)]
+    await asyncio.gather(*poll_thread_list)
 
 
 bot.run(TOKEN)
