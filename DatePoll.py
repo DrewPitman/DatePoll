@@ -166,7 +166,7 @@ async def bot_add(ctx, *args: str):
 
 
 # tell the bot you're unavailable
-@bot.command(name="remove", help="tell the bot you're no longer available on a given date or dates")
+@bot.command(name="drop", help="tell the bot you're no longer available on a given date or dates")
 async def bot_remove(ctx, *args: str):
     user = ctx.author
     date_range = read_dates(*args)
