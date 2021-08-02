@@ -68,8 +68,25 @@ def read_dates(*args):
         date_range = date_list
     return date_range
 
+def date_str(ctx, date_range):
+    date_range.sort()
 
-# asynchronous functions ... IF I HAD ONE
+    # convert dates to strings and display in the channel
+    display_list = [
+        interpret_input(x) + "\t:\t" + ", ".join([y.name for y in bot.availability[ctx.guild.id].get(x, [])])
+        for x in date_range if bot.availability[ctx.guild.id].get(x)]
+    display_str = "\n".join(display_list)
+    if not display_str:
+        display_str = "No availability"
+    return display_str
+
+# asynchronous functions
+async def alert_cm(ctx):
+    date_range = [x for x,y in bot.availability[ctx.guild.id].items() if len(y) >= bot.cm[ctx.guild.id]]
+    display_str = "critical mass:\n" + date_str(ctx, date_range)
+    await ctx.send(display_str)
+
+
 
 
 # bot events
@@ -83,9 +100,11 @@ async def on_ready():
     for guild in bot.guilds:
         print(guild.name)
 
-    # use guild ids so that the bot can maintain different availability dicts for different servers
+    # use guild ids so that the bot can maintain different availability and critical mass dicts for different servers
     bot.availability = {}
+    bot.cm = {}
     for guild in bot.guilds:
+        # work with availability
         try:
             # get availability from last session
             save_availability = pickle.load(file=open("availability_" + str(guild.id) + ".p", "rb"))
@@ -99,6 +118,12 @@ async def on_ready():
                                           save_availability if x >= datetime.date.today()}
         except:
             bot.availability[guild.id] = {}
+
+        # work with critical mass
+        try:
+            bot.cm[guild.id] = pickle.load(file=open("cm_" + str(guild.id) + ".p", "rb"))
+        except:
+            bot.cm[guild.id] = 2**16
 
 
 # I'll leave this commented out for now. Convenient to have the syntax here until I know I don't want it.
@@ -122,6 +147,14 @@ async def hello_there(ctx, *args):
     await ctx.send(reply)
 
 
+@bot.command(name="cm", help="define the critical mass before enough people have scheduled")
+async def cm(ctx, n: int):
+    if n >= 1:
+        bot.cm[ctx.guild.id] = n
+        pickle.dump(bot.cm[ctx.guild.id], open("cm_" + str(ctx.guild.id) + ".p", "wb"))
+    else:
+        raise ValueError("critical mass must be a positive integer.")
+
 # Tell the user who is available and when
 @bot.command(name="show", help="the bot will tell you who is available on upcoming dates \noptional input: date range")
 async def show(ctx, *args):
@@ -130,15 +163,8 @@ async def show(ctx, *args):
         date_range = read_dates(*args)
     else:
         date_range = [x for x in bot.availability[ctx.guild.id] if x >= datetime.date.today()]
-    date_range.sort()
 
-    # convert dates to strings and display in the channel
-    display_list = [
-        interpret_input(x) + "\t:\t" + ", ".join([y.name for y in bot.availability[ctx.guild.id].get(x, [])])
-        for x in date_range if bot.availability[ctx.guild.id].get(x)]
-    display_str = "\n".join(display_list)
-    if not display_str:
-        display_str = "No availability"
+    display_str = date_str(ctx, date_range)
     await ctx.send(display_str)
 
 
@@ -235,6 +261,10 @@ class PollButton(discord.ui.Button['Poll']):
 
         # edit the results of the button-press into to the message
         await interaction.response.edit_message(view=view)
+
+        # check for critical mass and send a message if critical mass is reached
+        if len(bot.availability[interaction.guild.id][self.date]) >= bot.cm[interaction.guild.id]:
+            await alert_cm(interaction.channel)
 
 
 # class for a group of buttons appearing in a single message for the command '!pull'
