@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 
 # import environment variables from the .env file
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+# TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DevEnvBot_TOKEN')
 
 # make a bot and THE dictionary for player bot.availability
 bot = commands.Bot(command_prefix='!')
@@ -68,6 +69,7 @@ def read_dates(*args):
         date_range = date_list
     return date_range
 
+
 def date_str(ctx, date_range):
     date_range.sort()
 
@@ -80,13 +82,12 @@ def date_str(ctx, date_range):
         display_str = "No availability"
     return display_str
 
+
 # asynchronous functions
 async def alert_cm(ctx):
-    date_range = [x for x,y in bot.availability[ctx.guild.id].items() if len(y) >= bot.cm[ctx.guild.id]]
+    date_range = [x for x, y in bot.availability[ctx.guild.id].items() if len(y) >= bot.cm[ctx.guild.id]]
     display_str = "critical mass:\n" + date_str(ctx, date_range)
     await ctx.send(display_str)
-
-
 
 
 # bot events
@@ -123,7 +124,7 @@ async def on_ready():
         try:
             bot.cm[guild.id] = pickle.load(file=open("cm_" + str(guild.id) + ".p", "rb"))
         except:
-            bot.cm[guild.id] = 2**16
+            bot.cm[guild.id] = 2 ** 16
 
 
 # I'll leave this commented out for now. Convenient to have the syntax here until I know I don't want it.
@@ -154,6 +155,7 @@ async def cm(ctx, n: int):
         pickle.dump(bot.cm[ctx.guild.id], open("cm_" + str(ctx.guild.id) + ".p", "wb"))
     else:
         raise ValueError("critical mass must be a positive integer.")
+
 
 # Tell the user who is available and when
 @bot.command(name="show", help="the bot will tell you who is available on upcoming dates \noptional input: date range")
@@ -283,7 +285,7 @@ async def poll_thread(ctx: commands.Context, content: str, start_date):
 
 # bot command to make a poll consisting of buttons across multiple messages
 @bot.command(name="poll", help="buttons allow users to toggle availability \noptional input: number of days in poll")
-async def poll(ctx: commands.Context, days: int = 15):
+async def poll(ctx: commands.Context, days: int = 20):
     # delete old polls first
     messages = await ctx.channel.history(limit=100).flatten()
     messages = [m for m in messages if ("!poll" in m.content and "!" == m.content[0]) or (
