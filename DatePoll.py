@@ -16,8 +16,7 @@ from dotenv import load_dotenv
 
 # import environment variables from the .env file
 load_dotenv()
-# TOKEN = os.getenv('DISCORD_TOKEN')
-TOKEN = os.getenv('DevEnvBot_TOKEN')
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 # default critical mass size
 DEFAULT_CM = 2 ** 16
