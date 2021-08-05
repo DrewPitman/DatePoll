@@ -18,6 +18,8 @@ load_dotenv()
 # TOKEN = os.getenv('DISCORD_TOKEN')
 TOKEN = os.getenv('DevEnvBot_TOKEN')
 
+# default critical mass size
+DEFAULT_CM = 2 ** 16
 # make a bot and THE dictionary for player bot.availability
 bot = commands.Bot(command_prefix='!')
 
@@ -34,7 +36,7 @@ def parse(x):
     return dateparser.parse(x, settings={'PREFER_DATES_FROM': 'future'})
 
 
-# a function to turn user input into a date range
+# turns user input into a date range
 # currently understands "from .. to" and "next [weekday]"
 # I would like to make it so that "next two weeks" and such works, we'll see what the future holds
 def read_dates(*args):
@@ -70,6 +72,7 @@ def read_dates(*args):
     return date_range
 
 
+# turns a list of dates into a human readable string
 def date_str(ctx, date_range):
     date_range.sort()
 
@@ -83,10 +86,35 @@ def date_str(ctx, date_range):
     return display_str
 
 
+# generate the names of pickle files
+def p_file(guild, prefix: str):
+    avail_str = "pickle_jar/availability_" + str(guild.id) + ".p"
+    cm_str = "pickle_jar/cm_" + str(guild.id) + ".p"
+    if prefix:
+        if prefix == "availability":
+            return avail_str
+        elif prefix == "cm":
+            return cm_str
+        else:
+            raise ValueError("prefix should be 'availability' or 'cm'")
+    else:
+        return avail_str, cm_str
+
+
+# determine if critical mass has been reached
+def cm_reached(guild):
+    for k in bot.availability[guild.id]:
+        if len(bot.availability[guild.id][k]) >= bot.cm[guild.id]:
+            bot.cm_bool[guild.id] = True
+            return True
+    bot.cm_bool[guild.id] = False
+    return False
+
+
 # asynchronous functions
 async def alert_cm(ctx):
     date_range = [x for x, y in bot.availability[ctx.guild.id].items() if len(y) >= bot.cm[ctx.guild.id]]
-    display_str = "critical mass:\n" + date_str(ctx, date_range)
+    display_str = "critical mass of " + str(bot.cm[ctx.guild.id]) + " reached:\n" + date_str(ctx, date_range)
     await ctx.send(display_str)
 
 
@@ -104,11 +132,12 @@ async def on_ready():
     # use guild ids so that the bot can maintain different availability and critical mass dicts for different servers
     bot.availability = {}
     bot.cm = {}
+    bot.cm_bool = {}
     for guild in bot.guilds:
         # work with availability
         try:
             # get availability from last session
-            save_availability = pickle.load(file=open("availability_" + str(guild.id) + ".p", "rb"))
+            save_availability = pickle.load(file=open(p_file(guild, "availability"), "rb"))
             user_list = list(set([y for _, x in save_availability for y in x]))
             bot.user_dict = {}
 
@@ -122,16 +151,29 @@ async def on_ready():
 
         # work with critical mass
         try:
-            bot.cm[guild.id] = pickle.load(file=open("cm_" + str(guild.id) + ".p", "rb"))
+            bot.cm[guild.id] = pickle.load(file=open(p_file(guild, "cm"), "rb"))
+            cm_reached(guild)
         except:
-            bot.cm[guild.id] = 2 ** 16
+            bot.cm[guild.id] = DEFAULT_CM
+            bot.cm_bool[guild.id] = False
 
 
-# I'll leave this commented out for now. Convenient to have the syntax here until I know I don't want it.
-# # what the bot does when someone sends a message
-# @bot.event
-# async def on_message(ctx):
-#     await bot.process_commands(ctx)
+# make the necessary data structures when first added to a server
+@bot.event
+async def on_guild_join(guild):
+    # may one day add functionality to remember old files when added
+    bot.availability[guild.id] = {}
+    bot.cm[guild.id] = DEFAULT_CM
+    bot.cm_bool[guild.id] = False
+
+@bot.event
+async def on_guild_remove(guild):
+    bot.availability.pop(guild.id)
+    bot.cm.pop(guild.id)
+    bot.cm_bool.pop(guild.id)
+    os.remove(p_file(guild,"availability"))
+    os.remove(p_file(guild, "cm"))
+
 
 
 # bot commands
@@ -152,7 +194,9 @@ async def hello_there(ctx, *args):
 async def cm(ctx, n: int):
     if n >= 1:
         bot.cm[ctx.guild.id] = n
-        pickle.dump(bot.cm[ctx.guild.id], open("cm_" + str(ctx.guild.id) + ".p", "wb"))
+        pickle.dump(bot.cm[ctx.guild.id], open(p_file(ctx.guild, "cm"), "wb"))
+        if cm_reached(ctx.guild):
+            await alert_cm(ctx)
     else:
         raise ValueError("critical mass must be a positive integer.")
 
@@ -166,7 +210,11 @@ async def show(ctx, *args):
     else:
         date_range = [x for x in bot.availability[ctx.guild.id] if x >= datetime.date.today()]
 
-    display_str = date_str(ctx, date_range)
+    if bot.cm_bool[ctx.guild.id]:
+        display_str = "critical mass of " + str(bot.cm[ctx.guild.id]) + " reached.\n"
+    else:
+        display_str = ""
+    display_str += date_str(ctx, date_range)
     await ctx.send(display_str)
 
 
@@ -186,18 +234,25 @@ async def bot_add(ctx, *args: str):
 
     # pickle availability in case of shutdown
     save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[ctx.guild.id].items()]
-    pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
+    pickle.dump(save_availability, open(p_file(ctx.guild, "availability"), "wb"))
 
     # inform the user
     await ctx.send("Thanks " + ctx.author.display_name + ", you've been marked available on " +
                    '; '.join([interpret_input(x) for x in date_range]))
+
+    if not bot.cm_bool[ctx.guild.id]:
+        if cm_reached(ctx.guild):
+            await alert_cm(ctx)
 
 
 # tell the bot you're unavailable
 @bot.command(name="drop", help="tell the bot you're no longer available on a given date or dates")
 async def bot_remove(ctx, *args: str):
     user = ctx.author
-    date_range = read_dates(*args)
+    if args[0] == "all":
+        date_range = list(bot.availability[ctx.guild.id].keys())
+    else:
+        date_range = read_dates(*args)
 
     # add to bot.availability dictionary
     for d in date_range:
@@ -206,14 +261,20 @@ async def bot_remove(ctx, *args: str):
                 bot.availability[ctx.guild.id][d].remove(user)
             except:
                 pass
+            if not bot.availability[ctx.guild.id][d]:
+                bot.availability[ctx.guild.id].pop(d)
 
     # pickle the availability in case of shutdown
     save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[ctx.guild.id].items()]
-    pickle.dump(save_availability, open("availability_" + str(ctx.guild.id) + ".p", "wb"))
+    pickle.dump(save_availability, open(p_file(ctx.guild, "availability"), "wb"))
 
     # inform the user
     await ctx.send("Thanks " + ctx.author.display_name + ", you've been marked unavailable on " +
                    '; '.join([interpret_input(x) for x in date_range]))
+
+    if bot.cm_bool[ctx.guild.id]:
+        if not cm_reached(ctx.guild):
+            await ctx.send("We have fallen below critical mass.")
 
 
 # make buttons work
@@ -252,7 +313,7 @@ class PollButton(discord.ui.Button['Poll']):
 
         # pickles the availability dict in case of a shutdown
         save_availability = [(x, [z.id for z in y]) for x, y in bot.availability[interaction.guild.id].items()]
-        pickle.dump(save_availability, open("availability_" + str(interaction.guild.id) + ".p", "wb"))
+        pickle.dump(save_availability, open(p_file(interaction.guild, "availability"), "wb"))
 
         # update button label to show user's available on the button's date
         if bot.availability[interaction.guild.id][self.date]:
@@ -265,8 +326,12 @@ class PollButton(discord.ui.Button['Poll']):
         await interaction.response.edit_message(view=view)
 
         # check for critical mass and send a message if critical mass is reached
-        if len(bot.availability[interaction.guild.id][self.date]) >= bot.cm[interaction.guild.id]:
-            await alert_cm(interaction.channel)
+        if bot.cm_bool[interaction.guild.id]:
+            if not cm_reached(interaction.guild):
+                await interaction.channel.send("We have fallen below critical mass.")
+        else:
+            if cm_reached(interaction.guild):
+                await alert_cm(interaction.channel)
 
 
 # class for a group of buttons appearing in a single message for the command '!pull'
