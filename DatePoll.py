@@ -251,6 +251,7 @@ async def bot_remove(ctx, *args: str):
     user = ctx.author
     if args[0] == "all":
         date_range = list(bot.availability[ctx.guild.id].keys())
+        date_range = [x for x in date_range if user in bot.availability[ctx.guild.id][x]]
     else:
         date_range = read_dates(*args)
 
@@ -289,7 +290,6 @@ class PollButton(discord.ui.Button['Poll']):
         button_label = interpret_input(self.date)
         try:
             if bot.availability[ctx.guild.id][self.date]:
-                print([x.guild.me.display_name for x in bot.availability[ctx.guild.id][self.date]])
                 button_label += " : " + ', '.join([x.display_name for x in bot.availability[ctx.guild.id][self.date]])
         except:
             pass
