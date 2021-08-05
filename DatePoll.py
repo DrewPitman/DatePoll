@@ -284,13 +284,13 @@ async def bot_remove(ctx, *args: str):
 
 # class for the buttons that appear for the command '!poll'
 class PollButton(discord.ui.Button['Poll']):
-    def __init__(self, ctx: commands.Context, start_date: datetime.date, entry: int):
+    def __init__(self, guild: discord.Guild, start_date: datetime.date, entry: int):
         # make button labels before calling __init__
         self.date = start_date + datetime.timedelta(days=entry)
         button_label = interpret_input(self.date)
         try:
-            if bot.availability[ctx.guild.id][self.date]:
-                button_label += " : " + ', '.join([x.display_name for x in bot.availability[ctx.guild.id][self.date]])
+            if bot.availability[guild.id][self.date]:
+                button_label += " : " + ', '.join([x.display_name for x in bot.availability[guild.id][self.date]])
         except:
             pass
         # entry = divmod(entry, 5)[0]
@@ -336,16 +336,16 @@ class PollButton(discord.ui.Button['Poll']):
 
 # class for a group of buttons appearing in a single message for the command '!pull'
 class Poll(discord.ui.View):
-    def __init__(self, ctx: commands.Context, start_date: datetime.date):
+    def __init__(self, guild: discord.Guild, start_date: datetime.date):
         super().__init__(timeout=None)  # timeout=None allows users to access
 
         for x in range(5):
-            self.add_item(PollButton(ctx, start_date, x))
+            self.add_item(PollButton(guild, start_date, x))
 
 
 # function that creates a single message with buttons in it
 async def poll_thread(ctx: commands.Context, content: str, start_date):
-    await ctx.send(content, view=Poll(ctx, start_date))
+    await ctx.send(content, view=Poll(ctx.guild, start_date))
 
 
 # bot command to make a poll consisting of buttons across multiple messages
