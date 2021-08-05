@@ -7,6 +7,7 @@ import asyncio
 import datetime
 import os
 import pickle
+from typing import List
 
 import dateparser
 import discord
@@ -15,30 +16,33 @@ from dotenv import load_dotenv
 
 # import environment variables from the .env file
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-# TOKEN = os.getenv('DevEnvBot_TOKEN')
+# TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DevEnvBot_TOKEN')
 
 # default critical mass size
 DEFAULT_CM = 2 ** 16
-# make a bot and THE dictionary for player bot.availability
+
+# make a bot
 bot = commands.Bot(command_prefix='!')
 
 
-# synchronous functions
+#########################
+# synchronous functions #
+#########################
 
 # this is how we want the bot to display dates on Discord
-def interpret_input(x):
+def interpret_input(x: datetime.date):
     return x.strftime("%a, %b %d")
 
 
 # when we parse days of the week, we assume that the user is talking about upcoming dates
-def parse(x):
+def parse(x: str):
     return dateparser.parse(x, settings={'PREFER_DATES_FROM': 'future'})
 
 
 # turns user input into a date range
 # currently understands "from .. to" and "next [weekday]"
-# I would like to make it so that "next two weeks" and such works, we'll see what the future holds
+# I would like to make it so that "next two weeks" and such works
 def read_dates(*args):
     # clean up input
     args = list(args)
@@ -73,7 +77,7 @@ def read_dates(*args):
 
 
 # turns a list of dates into a human readable string
-def date_str(ctx, date_range):
+def date_str(ctx: commands.Context, date_range: List[datetime.date]):
     date_range.sort()
 
     # convert dates to strings and display in the channel
@@ -87,7 +91,7 @@ def date_str(ctx, date_range):
 
 
 # generate the names of pickle files
-def p_file(guild, prefix: str):
+def p_file(guild: discord.Guild, prefix: str):
     avail_str = "pickle_jar/availability_" + str(guild.id) + ".p"
     cm_str = "pickle_jar/cm_" + str(guild.id) + ".p"
     if prefix:
@@ -102,7 +106,7 @@ def p_file(guild, prefix: str):
 
 
 # determine if critical mass has been reached
-def cm_reached(guild):
+def reached_cm(guild: discord.Guild):
     for k in bot.availability[guild.id]:
         if len(bot.availability[guild.id][k]) >= bot.cm[guild.id]:
             bot.cm_bool[guild.id] = True
@@ -111,14 +115,20 @@ def cm_reached(guild):
     return False
 
 
-# asynchronous functions
-async def alert_cm(ctx):
+##########################
+# asynchronous functions #
+##########################
+
+# alert everyone when critical mass has been reached
+async def alert_cm(ctx: commands.Context):
     date_range = [x for x, y in bot.availability[ctx.guild.id].items() if len(y) >= bot.cm[ctx.guild.id]]
     display_str = "critical mass of " + str(bot.cm[ctx.guild.id]) + " reached:\n" + date_str(ctx, date_range)
     await ctx.send(display_str)
 
 
-# bot events
+##############
+# bot events #
+##############
 
 # what the bot does when it first wakes up
 @bot.event
@@ -126,8 +136,9 @@ async def on_ready():
     await bot.wait_until_ready()
     print(bot.user.name + " has connected to Discord!")
 
+    print(bot.user.name + "'s guilds:")
     for guild in bot.guilds:
-        print(guild.name)
+        print("\t" + guild.name)
 
     # use guild ids so that the bot can maintain different availability and critical mass dicts for different servers
     bot.availability = {}
@@ -152,7 +163,7 @@ async def on_ready():
         # work with critical mass
         try:
             bot.cm[guild.id] = pickle.load(file=open(p_file(guild, "cm"), "rb"))
-            cm_reached(guild)
+            reached_cm(guild)
         except:
             bot.cm[guild.id] = DEFAULT_CM
             bot.cm_bool[guild.id] = False
@@ -160,50 +171,61 @@ async def on_ready():
 
 # make the necessary data structures when first added to a server
 @bot.event
-async def on_guild_join(guild):
+async def on_guild_join(guild: discord.Guild):
     # may one day add functionality to remember old files when added
     bot.availability[guild.id] = {}
     bot.cm[guild.id] = DEFAULT_CM
     bot.cm_bool[guild.id] = False
 
+
+# delete all saved files for a guild when removed from it
 @bot.event
-async def on_guild_remove(guild):
+async def on_guild_remove(guild: discord.Guild):
     bot.availability.pop(guild.id)
     bot.cm.pop(guild.id)
     bot.cm_bool.pop(guild.id)
-    os.remove(p_file(guild,"availability"))
+    os.remove(p_file(guild, "availability"))
     os.remove(p_file(guild, "cm"))
 
 
-
-# bot commands
+################
+# bot commands #
+################
 
 # Pure silliness
-@bot.command(name='hello', help='hint: I was trained in your jedi arts by Count Dooku')
-async def hello_there(ctx, *args):
+@bot.command(name='hello', help='I was trained in your jedi arts by Count Dooku', usage="there")
+async def hello_there(ctx: commands.Context, *args):
     if not args:
         reply = "hello where?"
     elif "there" in args[0]:
         reply = "General Kenobi!"
+    elif "My name is Inigo Montoya. You killed my father. Prepare to Die." in ' '.join(args):
+        reply = "Stop saying that!"
+    elif ' '.join(args) in "My name is Inigo Montoya. You killed my father. Prepare to Die.":
+        reply = "My name is Inigo Montoya. You killed my father. Prepare to Die.".replace(' '.join(args), '')
     else:
         reply = "I have absolutely no idea what you're saying right now"
     await ctx.send(reply)
 
 
-@bot.command(name="cm", help="define the critical mass before enough people have scheduled")
-async def cm(ctx, n: int):
+# set the critical mass
+@bot.command(name="cm",
+             help="set the 'critical mass' for the poll\nif this many users sign up for the same date, the bot will send a message notifying everyone.",
+             usage="<critical mass>")
+async def cm(ctx: commands.Context, n: int):
     if n >= 1:
         bot.cm[ctx.guild.id] = n
         pickle.dump(bot.cm[ctx.guild.id], open(p_file(ctx.guild, "cm"), "wb"))
-        if cm_reached(ctx.guild):
+        if reached_cm(ctx.guild):
             await alert_cm(ctx)
     else:
         raise ValueError("critical mass must be a positive integer.")
 
 
 # Tell the user who is available and when
-@bot.command(name="show", help="the bot will tell you who is available on upcoming dates \noptional input: date range")
-async def show(ctx, *args):
+@bot.command(name="show", help="the bot will tell you who is available on upcoming dates",
+             usage=" or  !show <date range>")
+async def show(ctx: commands.Context, *args):
     # get dates to display
     if args:
         date_range = read_dates(*args)
@@ -219,8 +241,8 @@ async def show(ctx, *args):
 
 
 # tell the bot that you're available
-@bot.command(name="add", help="tell the bot you're available on a given date or dates")
-async def bot_add(ctx, *args: str):
+@bot.command(name="add", help="tell the bot you're available on a given date or dates", usage="<date range>")
+async def bot_add(ctx: commands.Context, *args: str):
     # get user
     user = ctx.author
     date_range = read_dates(*args)
@@ -241,13 +263,13 @@ async def bot_add(ctx, *args: str):
                    '; '.join([interpret_input(x) for x in date_range]))
 
     if not bot.cm_bool[ctx.guild.id]:
-        if cm_reached(ctx.guild):
+        if reached_cm(ctx.guild):
             await alert_cm(ctx)
 
 
 # tell the bot you're unavailable
-@bot.command(name="drop", help="tell the bot you're no longer available on a given date or dates")
-async def bot_remove(ctx, *args: str):
+@bot.command(name="drop", help="tell the bot you're unavailable on a given date or dates", usage="<date range>")
+async def bot_remove(ctx: commands.Context, *args: str):
     user = ctx.author
     if args[0] == "all":
         date_range = list(bot.availability[ctx.guild.id].keys())
@@ -274,11 +296,14 @@ async def bot_remove(ctx, *args: str):
                    '; '.join([interpret_input(x) for x in date_range]))
 
     if bot.cm_bool[ctx.guild.id]:
-        if not cm_reached(ctx.guild):
+        if not reached_cm(ctx.guild):
             await ctx.send("We have fallen below critical mass.")
 
 
-# make buttons work
+################################################################
+# classes, functions, and commands to make a poll with buttons #
+################################################################
+
 # with help from:
 # https://gist.github.com/Rapptz/dbfd8cd945a9245e5504a54c2b9eda03
 
@@ -327,10 +352,10 @@ class PollButton(discord.ui.Button['Poll']):
 
         # check for critical mass and send a message if critical mass is reached
         if bot.cm_bool[interaction.guild.id]:
-            if not cm_reached(interaction.guild):
+            if not reached_cm(interaction.guild):
                 await interaction.channel.send("We have fallen below critical mass.")
         else:
-            if cm_reached(interaction.guild):
+            if reached_cm(interaction.guild):
                 await alert_cm(interaction.channel)
 
 
@@ -349,7 +374,8 @@ async def poll_thread(ctx: commands.Context, content: str, start_date):
 
 
 # bot command to make a poll consisting of buttons across multiple messages
-@bot.command(name="poll", help="buttons allow users to toggle availability \noptional input: number of days in poll")
+@bot.command(name="poll", help="creates a poll with buttons that allow users to toggle availability",
+             usage="  or  !poll <number of days>")
 async def poll(ctx: commands.Context, days: int = 20):
     # delete old polls first
     messages = await ctx.channel.history(limit=100).flatten()
