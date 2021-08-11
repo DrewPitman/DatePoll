@@ -80,6 +80,10 @@ until the button is pressed.
 
 ## Navigating this repository
 
+Note that you will need discord.py version 2.0 or later to run this bot. At the time of writing, version 2.0 exists only as the master branch of the discord.py repository. 
+You can install version 2.0 with the command:
+> python3 -m pip install -U git+https://github.com/Rapptz/discord.py
+
 ### DatePoll.py
 All of the functions, commands, methods, and classes for DatePollBot reside in *DatePoll.py*.
 The code is organized into 6 sections: 
